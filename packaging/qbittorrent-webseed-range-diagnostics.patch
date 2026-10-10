@@ -1,0 +1,30 @@
+diff --git a/src/base/bittorrent/sessionimpl.cpp b/src/base/bittorrent/sessionimpl.cpp
+index 5f3f101..1029c90 100644
+--- a/src/base/bittorrent/sessionimpl.cpp
++++ b/src/base/bittorrent/sessionimpl.cpp
+@@ -5879,6 +5879,25 @@ void SessionImpl::handleAlert(lt::alert *alert)
+         case lt::peer_ban_alert::alert_type:
+             handlePeerBanAlert(static_cast<const lt::peer_ban_alert *>(alert));
+             break;
++        case lt::peer_error_alert::alert_type:
++            {
++                const auto *peerErrorAlert = static_cast<const lt::peer_error_alert *>(alert);
++                if (peerErrorAlert->error != lt::errors::invalid_range)
++                    break;
++
++                const TorrentImpl *torrent = getTorrent(peerErrorAlert->handle);
++                if (!torrent)
++                    break;
++
++                const lt::address address = peerErrorAlert->endpoint.address();
++                const QString endpoint = (address.is_v6() ? u"[%1]:%2"_s : u"%1:%2"_s)
++                        .arg(toString(address), QString::number(peerErrorAlert->endpoint.port()));
++                LogMsg(tr("URL seed returned an invalid byte range. Torrent: \"%1\". Endpoint: \"%2\". Error: \"%3\" (%4:%5).")
++                        .arg(torrent->name(), endpoint, Utils::String::fromLocal8Bit(peerErrorAlert->error.message())
++                            , QString::fromLatin1(peerErrorAlert->error.category().name()), QString::number(peerErrorAlert->error.value()))
++                        , Log::WARNING);
++            }
++            break;
+         case lt::url_seed_alert::alert_type:
+             handleUrlSeedAlert(static_cast<const lt::url_seed_alert *>(alert));
+             break;

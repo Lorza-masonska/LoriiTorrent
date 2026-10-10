@@ -1,0 +1,9 @@
+Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
+
+Files: *
+Copyright:
+ 2022 Niels Thykier <niels@thykier.net>
+ 2024 Helmut Grohne <helmut@subdivi.de>
+License: GPL-2+
+ The full text of the GPL version 2 is distributed in
+ /usr/share/common-licenses/GPL-2 on Debian systems.

@@ -1,0 +1,58 @@
+Subject: Preserve web seed file availability after transient HTTP errors
+Base: libtorrent v2.0.15
+Base-Commit: 1eb18faeae156d8dbbab42935c082f8b81f50989
+Base-Blob: src/web_peer_connection.cpp 9c5d6eb990c5cbe694bd66b730a630f24da763c4
+
+A non-success HTTP response currently clears availability of the requested
+file. For a single-file URL seed this prevents later connections, despite
+handle_error() scheduling a retry. Preserve availability only for HTTP
+408, 429, 500, 502, 503 and 504 so the existing retry path can reconnect.
+
+This local dependency patch applies to the pinned libtorrent source used by
+qBittorrent 5.2.4 on Windows, Linux and Docker. It retains existing handling
+of other HTTP errors, hash failures, bans, authentication and redirects.
+Retry-After and urlseed_wait_retry retain their existing native behavior;
+no torrent restart, URL reset or additional network request is introduced.
+
+Runtime regression: own loopback URL seed first returns 503, then valid 206;
+the patched client must complete with a matching SHA-256 without user action.
+The stock loopback transfer with valid 206 completes; injected 503 stalls.
+
+diff --git a/src/web_peer_connection.cpp b/src/web_peer_connection.cpp
+--- a/src/web_peer_connection.cpp
++++ b/src/web_peer_connection.cpp
+@@ -535,6 +535,22 @@
+ 
+ namespace {
+ 
++	bool isTransientHttpError(int const status)
++	{
++		switch (status)
++		{
++		case 408:
++		case 429:
++		case 500:
++		case 502:
++		case 503:
++		case 504:
++			return true;
++		default:
++			return false;
++		}
++	}
++
+ 	std::string get_peer_name(http_parser const& p, std::string const& host)
+ 	{
+ 		std::string const& server_version = p.header("server");
+@@ -904,7 +920,10 @@
+ 			// if the status code is not one of the accepted ones, abort
+ 			if (!is_ok_status(m_parser.status_code()))
+ 			{
+-				if (!m_file_requests.empty())
++				// A transient response does not imply that the file is missing.
++				// Keep it available for the retry scheduled by handle_error().
++				if (!m_file_requests.empty()
++					&& !isTransientHttpError(m_parser.status_code()))
+ 				{
+ 					file_request_t const& file_req = m_file_requests.front();
+ 					m_web->have_files.resize(t->torrent_file().num_files(), true);

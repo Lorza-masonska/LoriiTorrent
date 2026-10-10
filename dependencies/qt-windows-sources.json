@@ -1,0 +1,30 @@
+[
+  {
+    "file": "qtbase-everywhere-src-6.10.3.tar.xz",
+    "version": "6.10.3",
+    "url": "https://download.qt.io/official_releases/qt/6.10/6.10.3/submodules/qtbase-everywhere-src-6.10.3.tar.xz",
+    "sha256": "383dc907816338f0cba72088a524c07458dfc69ce684ca9132fcc4fe91c24b0b",
+    "bytes": 50509856
+  },
+  {
+    "file": "qtsvg-everywhere-src-6.10.3.tar.xz",
+    "version": "6.10.3",
+    "url": "https://download.qt.io/official_releases/qt/6.10/6.10.3/submodules/qtsvg-everywhere-src-6.10.3.tar.xz",
+    "sha256": "b3223fe005f6a4c7f21f34e4ee6ce0094737cff9503ba15bbb171ac18794f76d",
+    "bytes": 2614032
+  },
+  {
+    "file": "qttools-everywhere-src-6.10.3.tar.xz",
+    "version": "6.10.3",
+    "url": "https://download.qt.io/official_releases/qt/6.10/6.10.3/submodules/qttools-everywhere-src-6.10.3.tar.xz",
+    "sha256": "8f00b9e3d1f80973d81cff67684972b89993183ef19924404d5b8ff0f89675b6",
+    "bytes": 10078596
+  },
+  {
+    "file": "qttranslations-everywhere-src-6.10.3.tar.xz",
+    "version": "6.10.3",
+    "url": "https://download.qt.io/official_releases/qt/6.10/6.10.3/submodules/qttranslations-everywhere-src-6.10.3.tar.xz",
+    "sha256": "52689984b114d4d34516d5d7bfb0c75857b1c3ff529921042144f09ab2de3a83",
+    "bytes": 1680584
+  }
+]

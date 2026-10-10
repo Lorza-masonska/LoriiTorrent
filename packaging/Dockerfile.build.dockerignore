@@ -1,0 +1,14 @@
+.git
+**/.git
+.vscode
+**/.vscode
+.codex
+**/.codex
+.agents
+**/.agents
+build
+**/build
+*.log
+**/*.log
+dependencies/archives
+Legacy

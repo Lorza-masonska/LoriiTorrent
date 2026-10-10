@@ -1,0 +1,34 @@
+# syntax=docker/dockerfile:1
+ARG DEBIAN_IMAGE=debian:13-slim
+FROM ${DEBIAN_IMAGE} AS build
+
+ARG GUI=ON
+ARG TESTING=ON
+ARG BUILD_JOBS=2
+ARG QBT_SOURCE=upstream
+ARG LIBTORRENT_PATCHES=ON
+ARG QT_BASE_PACKAGE_VERSION=6.8.2+dfsg-9+deb13u2
+ARG QT_TOOLS_PACKAGE_VERSION=6.8.2-5
+ARG QT_SVG_PACKAGE_VERSION=6.8.2-3
+ARG BOOST_PACKAGE_VERSION=1.83.0-4.2
+COPY packaging/install-debian-deps.sh /src/packaging/install-debian-deps.sh
+RUN sh /src/packaging/install-debian-deps.sh \
+    && rm -rf /var/lib/apt/lists/*
+COPY packaging/prepare-libtorrent.py packaging/verify-static-link.py /src/packaging/
+COPY packaging/patches/ /src/packaging/patches/
+COPY dependencies/libtorrent/ /src/dependencies/libtorrent/
+COPY dependencies/libtorrent-source.json /src/dependencies/libtorrent-source.json
+RUN python3 /src/packaging/prepare-libtorrent.py --mode "$LIBTORRENT_PATCHES" \
+    --jobs "$BUILD_JOBS" --build-root /build/dependencies \
+    --result /src/build/libtorrent-prepared.json
+COPY ${QBT_SOURCE}/ /src/source/
+COPY packaging/build-linux.sh /src/packaging/build-linux.sh
+COPY packaging/public-manifest.py /src/packaging/public-manifest.py
+COPY README.md NOTICE.md LICENSE PROVENANCE.json /src/
+COPY LICENSES/ /src/LICENSES/
+RUN QBT_SOURCE=source LIBTORRENT_BUILD_ROOT=/build/dependencies INSTALL_DIR=/stage \
+    sh /src/packaging/build-linux.sh
+
+# Export with: docker build -f packaging/Dockerfile.build --output type=local,dest=... .
+FROM scratch AS package
+COPY --from=build /stage/ /

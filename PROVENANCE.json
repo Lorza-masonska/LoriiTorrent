@@ -1,0 +1,26 @@
+{
+  "application": "LoriiTorrent",
+  "version": "5.2.4-r3",
+  "base_qbittorrent_version": "5.2.4",
+  "base_qbittorrent_commit": "a1e4649cb8ae581925acc161dbab5cbc6584c542",
+  "native_version": "2.0.15",
+  "native_commit": "1eb18faeae156d8dbbab42935c082f8b81f50989",
+  "original_qbittorrent_diff_sha256": "a99f5479f2d637bb63d20524ed0736b64d1c2afeba51b61a67dca16247676423",
+  "patches": {
+    "packaging/patches/libtorrent-2.0.15-transient-webseed.patch": "a968f2f8cd2f787217201600f013f60d77208b669f85565f1510d45d8fe0fcbe",
+    "packaging/patches/libtorrent-2.0.15-webseed-candidate-budget.patch": "cacd135e8d01fbbb2e7b496a0b1f3383de41a9fd7f55738086d709b43c138cdf",
+    "packaging/patches/libtorrent-2.0.15-webseed-redirect-refresh.patch": "0c3048a95e695392a0cb6eb4500de78f298fc1ae6060f59a29bc995be4a075fd",
+    "packaging/qbittorrent-static-link-order.patch": "6c1474877f497520e01b370703b8df9da87e3c0f7f0427e38473ab437c788aeb",
+    "packaging/qbittorrent-test-locale.patch": "1da125217402db8622f4d802f32b11ed999dfc19e3df5e465d527d3875a2385f",
+    "packaging/qbittorrent-webseed-range-diagnostics.patch": "3c764773ac2c2d94a94175dffa49acd41b776e59996635ee204e3e7b0a693453"
+  },
+  "tested_binary_sha256": {
+    "windows": "63b6d09cfe1a35fc1bcdb8ecdea3aa51323f5fb9dbddf74ec2df1e44d615e818",
+    "linux_gui": "12561af1e9fc02d6247b4fd1428cd29ddc5c41a232484c651ce30a15dbbb87f4",
+    "docker_nox": "00deb822102dc22fd11dd21940e1d1fe7bb66d9d0f578945ea38fa6a0bf20936"
+  },
+  "source_export_adjustments": {
+    "dependencies/libtorrent/.gitignore": "Wyjątki dla oryginalnie śledzonych szablonów CMake i nagłówków config.hpp; bez zmian kodu silnika.",
+    "dependencies/libtorrent": "Dokładne bajty eksportu zabezpiecza .gitattributes; normalizacja CRLF odbywa się dopiero w izolowanym katalogu budowania."
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "compiler": "NSIS",
+  "version": "3.11",
+  "debianVersion": "3.11-1",
+  "sources": "dependencies/archives/debian13/nsis_3.11*",
+  "copyright": "LICENSES/nsis-build/nsis-copyright"
+}

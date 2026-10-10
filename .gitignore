@@ -1,0 +1,16 @@
+/build/
+/.tools/
+/.vs/
+/.vscode/
+/dependencies/archives/
+**/__pycache__/
+*.pyc
+*.pyo
+*.log
+*.fastresume
+/profile/
+/Legacy/
+/validation/
+*.user
+*.suo
+

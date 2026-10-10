@@ -1,0 +1,94 @@
+diff --git a/src/base/CMakeLists.txt b/src/base/CMakeLists.txt
+index 4f792ae..8452d4f 100644
+--- a/src/base/CMakeLists.txt
++++ b/src/base/CMakeLists.txt
+@@ -223,6 +223,8 @@ add_library(qbt_base STATIC
+ )
+ 
+ target_link_libraries(qbt_base
++    PUBLIC
++        LibtorrentRasterbar::torrent-rasterbar
+     PRIVATE
+         OpenSSL::Crypto
+         OpenSSL::SSL
+@@ -230,7 +232,6 @@ target_link_libraries(qbt_base
+         # FindZLIB (from cmake) and zlib own scripts
+         $<IF:$<TARGET_EXISTS:ZLIB::ZLIB>,ZLIB::ZLIB,ZLIB::ZLIBSTATIC>
+     PUBLIC
+-        LibtorrentRasterbar::torrent-rasterbar
+         Qt::Core
+         Qt::CorePrivate
+         Qt::Network
+diff --git a/src/base/bittorrent/sessionimpl.cpp b/src/base/bittorrent/sessionimpl.cpp
+index 5f3f101..1029c90 100644
+--- a/src/base/bittorrent/sessionimpl.cpp
++++ b/src/base/bittorrent/sessionimpl.cpp
+@@ -5879,6 +5879,25 @@ void SessionImpl::handleAlert(lt::alert *alert)
+         case lt::peer_ban_alert::alert_type:
+             handlePeerBanAlert(static_cast<const lt::peer_ban_alert *>(alert));
+             break;
++        case lt::peer_error_alert::alert_type:
++            {
++                const auto *peerErrorAlert = static_cast<const lt::peer_error_alert *>(alert);
++                if (peerErrorAlert->error != lt::errors::invalid_range)
++                    break;
++
++                const TorrentImpl *torrent = getTorrent(peerErrorAlert->handle);
++                if (!torrent)
++                    break;
++
++                const lt::address address = peerErrorAlert->endpoint.address();
++                const QString endpoint = (address.is_v6() ? u"[%1]:%2"_s : u"%1:%2"_s)
++                        .arg(toString(address), QString::number(peerErrorAlert->endpoint.port()));
++                LogMsg(tr("URL seed returned an invalid byte range. Torrent: \"%1\". Endpoint: \"%2\". Error: \"%3\" (%4:%5).")
++                        .arg(torrent->name(), endpoint, Utils::String::fromLocal8Bit(peerErrorAlert->error.message())
++                            , QString::fromLatin1(peerErrorAlert->error.category().name()), QString::number(peerErrorAlert->error.value()))
++                        , Log::WARNING);
++            }
++            break;
+         case lt::url_seed_alert::alert_type:
+             handleUrlSeedAlert(static_cast<const lt::url_seed_alert *>(alert));
+             break;
+diff --git a/test/testutilsmisc.cpp b/test/testutilsmisc.cpp
+index b08a1c1..dd2234a 100644
+--- a/test/testutilsmisc.cpp
++++ b/test/testutilsmisc.cpp
+@@ -26,6 +26,7 @@
+  * exception statement from your version.
+  */
+ 
++#include <QLocale>
+ #include <QObject>
+ #include <QTest>
+ 
+@@ -42,17 +43,22 @@ public:
+ private slots:
+     void testfriendlyUnitCompact() const
+     {
++        const auto localized = [](QString expected)
++        {
++            return expected.replace(QLatin1String("."), QLocale::system().decimalPoint());
++        };
++
+         QCOMPARE(Utils::Misc::friendlyUnitCompact(500), (u"500" + QChar::Nbsp + u"B"));
+-        QCOMPARE(Utils::Misc::friendlyUnitCompact(1000), (u"0.97" + QChar::Nbsp + u"K"));
+-        QCOMPARE(Utils::Misc::friendlyUnitCompact(5000), (u"4.88" + QChar::Nbsp + u"K"));
+-        QCOMPARE(Utils::Misc::friendlyUnitCompact(10000), (u"9.76" + QChar::Nbsp + u"K"));
+-        QCOMPARE(Utils::Misc::friendlyUnitCompact(15000), (u"14.6" + QChar::Nbsp + u"K"));
+-        QCOMPARE(Utils::Misc::friendlyUnitCompact(100000), (u"97.6" + QChar::Nbsp + u"K"));
++        QCOMPARE(Utils::Misc::friendlyUnitCompact(1000), localized(u"0.97" + QChar::Nbsp + u"K"));
++        QCOMPARE(Utils::Misc::friendlyUnitCompact(5000), localized(u"4.88" + QChar::Nbsp + u"K"));
++        QCOMPARE(Utils::Misc::friendlyUnitCompact(10000), localized(u"9.76" + QChar::Nbsp + u"K"));
++        QCOMPARE(Utils::Misc::friendlyUnitCompact(15000), localized(u"14.6" + QChar::Nbsp + u"K"));
++        QCOMPARE(Utils::Misc::friendlyUnitCompact(100000), localized(u"97.6" + QChar::Nbsp + u"K"));
+         QCOMPARE(Utils::Misc::friendlyUnitCompact(150000), (u"146" + QChar::Nbsp + u"K"));
+         QCOMPARE(Utils::Misc::friendlyUnitCompact(1000000), (u"976" + QChar::Nbsp + u"K"));
+-        QCOMPARE(Utils::Misc::friendlyUnitCompact(10000000), (u"9.53" + QChar::Nbsp + u"M"));
+-        QCOMPARE(Utils::Misc::friendlyUnitCompact(15000000), (u"14.3" + QChar::Nbsp + u"M"));
+-        QCOMPARE(Utils::Misc::friendlyUnitCompact(10000000000), (u"9.31" + QChar::Nbsp + u"G"));
++        QCOMPARE(Utils::Misc::friendlyUnitCompact(10000000), localized(u"9.53" + QChar::Nbsp + u"M"));
++        QCOMPARE(Utils::Misc::friendlyUnitCompact(15000000), localized(u"14.3" + QChar::Nbsp + u"M"));
++        QCOMPARE(Utils::Misc::friendlyUnitCompact(10000000000), localized(u"9.31" + QChar::Nbsp + u"G"));
+     }
+ };
+ 

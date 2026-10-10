@@ -1,0 +1,275 @@
+Subject: Re-fetch configured origins after HTTP 401 from redirected web seeds
+Base: libtorrent v2.0.15
+Base-Commit: 1eb18faeae156d8dbbab42935c082f8b81f50989
+Apply-After: libtorrent-2.0.15-transient-webseed.patch
+Apply-After: libtorrent-2.0.15-webseed-candidate-budget.patch
+
+A redirected URL can expire after partial progress. Keep direct configured
+HTTP 401 failures terminal, but let an explicitly delegated ephemeral target
+schedule a fresh request to its still-enabled configured origin. Preserve
+Retry-After and the native retry floor, file-specific lineage, hash bans,
+manual removal, credential forwarding and IP/SSRF checks. Request snapshots
+and delegation generations reject old responses and removed/re-added origins.
+Fresh redirects may reuse a temporary URL without resetting banned entries.
+
+Runtime regression: an owned origin redirects to a target that serves four
+16 MiB pieces then returns 401; the origin subsequently supplies a healthy
+redirect. The client must finish with a matching SHA256 without user action.
+Direct configured 401, removed/stopped origins, stale generations, shared and
+multi-file redirects require negative or isolation controls.
+
+diff --git a/include/libtorrent/torrent.hpp b/include/libtorrent/torrent.hpp
+--- a/include/libtorrent/torrent.hpp
++++ b/include/libtorrent/torrent.hpp
+@@ -46,6 +46,8 @@
+ #define TORRENT_TORRENT_HPP_INCLUDE
+ 
+ #include <algorithm>
++#include <cstdint>
++#include <map>
+ #include <vector>
+ #include <set>
+ #include <list>
+@@ -232,6 +234,11 @@
+ 		// if this bitfield is non-empty, it represents the files this web server
+ 		// has.
+ 		typed_bitfield<file_index_t> have_files;
++
++		// Per-file configured origins and their current redirect generations.
++		// Ephemeral targets inherit origins, while configured seeds own generations.
++		std::map<file_index_t, std::map<std::string, std::uint64_t>> redirectOrigins;
++		std::map<file_index_t, std::uint64_t> redirectGenerations;
+ #if defined __GNUC__ && defined _GLIBCXX_DEBUG
+ 		// this works around a bug in libstdc++'s checked iterators
+ 		// http://stackoverflow.com/questions/22915325/avoiding-self-assignment-in-stdshuffle
+@@ -253,6 +260,8 @@
+ 			restart_piece = std::move(rhs.restart_piece);
+ 			redirects = std::move(rhs.redirects);
+ 			have_files = std::move(rhs.have_files);
++			redirectOrigins = std::move(rhs.redirectOrigins);
++			redirectGenerations = std::move(rhs.redirectGenerations);
+ 			return *this;
+ 		}
+ 
+@@ -739,6 +748,10 @@
+ 		void remove_web_seed(std::string const& url, web_seed_t::type_t type);
+ 
+ 		void retry_web_seed(peer_connection* p, boost::optional<seconds32> retry = boost::none);
++		void recordWebSeedRedirect(web_seed_t& source, web_seed_t& target
++			, file_index_t file, std::map<std::string, std::uint64_t> const& origins);
++		void retryWebSeedOrigins(web_seed_t const& target, file_index_t file
++			, std::map<std::string, std::uint64_t> const& origins);
+ 
+ 		void remove_web_seed_conn(peer_connection* peer);
+ 
+@@ -1419,6 +1432,7 @@
+ 		// invalidated as entries are added and removed from this list, hence the
+ 		// std::list
+ 		std::list<web_seed_t> m_web_seeds;
++		std::uint64_t m_webSeedRedirectGeneration = 0;
+ 
+ #ifndef TORRENT_DISABLE_EXTENSIONS
+ 		std::list<std::shared_ptr<torrent_plugin>> m_extensions;
+diff --git a/include/libtorrent/web_peer_connection.hpp b/include/libtorrent/web_peer_connection.hpp
+--- a/include/libtorrent/web_peer_connection.hpp
++++ b/include/libtorrent/web_peer_connection.hpp
+@@ -40,6 +40,7 @@
+ #include <deque>
+ #include <string>
+ #include <cstdint>
++#include <map>
+ 
+ #include "libtorrent/config.hpp"
+ #include "libtorrent/web_connection_base.hpp"
+@@ -107,6 +108,8 @@
+ 			file_index_t file_index;
+ 			int length;
+ 			std::int64_t start;
++			// Snapshot lineage when the request is queued, not when it fails.
++			std::map<std::string, std::uint64_t> redirectOrigins;
+ 		};
+ 		std::deque<file_request_t> m_file_requests;
+ 
+diff --git a/src/torrent.cpp b/src/torrent.cpp
+--- a/src/torrent.cpp
++++ b/src/torrent.cpp
+@@ -11389,6 +11389,92 @@
+ 			settings().get_int(settings_pack::urlseed_wait_retry)));
+ 	}
+ 
++	void torrent::recordWebSeedRedirect(web_seed_t& source, web_seed_t& target
++		, file_index_t const file, std::map<std::string, std::uint64_t> const& origins)
++	{
++		TORRENT_ASSERT(is_single_thread());
++		if (!source.ephemeral) source.redirectGenerations.erase(file);
++		if (&source == &target || !target.ephemeral || target.removed
++			|| target.disabled || target.peer_info.banned || source.removed
++			|| source.disabled || source.peer_info.banned) return;
++
++		auto const previousOrigins = target.redirectOrigins[file];
++		auto disconnectChangedTarget = [&]
++		{
++			if (previousOrigins.empty() || previousOrigins == target.redirectOrigins[file]
++				|| target.peer_info.connection == nullptr) return;
++			// Do not let queued responses for older lineage invalidate a fresh target.
++			auto* peer = static_cast<peer_connection*>(target.peer_info.connection);
++			peer->disconnect(errors::redirecting, operation_t::bittorrent
++				, peer_connection_interface::normal);
++		};
++
++		if (!source.ephemeral)
++		{
++			auto const generation = ++m_webSeedRedirectGeneration;
++			source.redirectGenerations[file] = generation;
++			target.redirectOrigins[file][source.url] = generation;
++			disconnectChangedTarget();
++			return;
++		}
++
++		for (auto const& origin : origins)
++		{
++			auto const root = std::find_if(m_web_seeds.begin(), m_web_seeds.end()
++				, [&origin](web_seed_t const& seed)
++				{ return !seed.ephemeral && seed.type == web_seed_entry::url_seed
++					&& seed.url == origin.first; });
++			if (root == m_web_seeds.end() || root->removed || root->disabled
++				|| root->peer_info.banned) continue;
++			auto const generation = root->redirectGenerations.find(file);
++			if (generation == root->redirectGenerations.end()
++				|| generation->second != origin.second) continue;
++			target.redirectOrigins[file][origin.first] = origin.second;
++		}
++		disconnectChangedTarget();
++	}
++
++	void torrent::retryWebSeedOrigins(web_seed_t const& target, file_index_t const file
++		, std::map<std::string, std::uint64_t> const& origins)
++	{
++		TORRENT_ASSERT(is_single_thread());
++		if (!target.ephemeral || target.removed || target.disabled
++			|| target.peer_info.banned) return;
++
++		// Keep the native retry floor even when Retry-After is shorter.
++		auto const retry = std::max(target.retry, aux::time_now32()
++			+ seconds32(settings().get_int(settings_pack::urlseed_wait_retry)));
++		for (auto const& origin : origins)
++		{
++			auto const root = std::find_if(m_web_seeds.begin(), m_web_seeds.end()
++				, [&origin](web_seed_t const& seed)
++				{ return !seed.ephemeral && seed.type == web_seed_entry::url_seed
++					&& seed.url == origin.first; });
++			if (root == m_web_seeds.end() || root->removed || root->disabled
++				|| root->peer_info.banned || root->have_files.empty()
++				|| root->have_files.get_bit(file)) continue;
++			auto const generation = root->redirectGenerations.find(file);
++			if (generation == root->redirectGenerations.end()
++				|| generation->second != origin.second) continue;
++
++			// Consume this delegation before allowing another origin request.
++			// Old responses cannot revive a newer delegation or a direct failure.
++			root->redirectGenerations.erase(generation);
++			root->have_files.set_bit(file);
++			root->interesting = true;
++			root->retry = std::max(root->retry, retry);
++			if (root->peer_info.connection != nullptr)
++			{
++				// A multi-file origin may still be serving another file. Reconnect
++				// after the delay so its restored availability is advertised.
++				auto* peer = static_cast<peer_connection*>(root->peer_info.connection);
++				peer->disconnect(errors::redirecting, operation_t::bittorrent
++					, peer_connection_interface::normal);
++			}
++		}
++		update_want_tick();
++	}
++
+ 	torrent_state torrent::get_peer_list_state()
+ 	{
+ 		torrent_state ret;
+diff --git a/src/web_peer_connection.cpp b/src/web_peer_connection.cpp
+--- a/src/web_peer_connection.cpp
++++ b/src/web_peer_connection.cpp
+@@ -426,6 +426,8 @@
+ 		file_req.start = std::int64_t(static_cast<int>(req.piece)) * info.piece_length()
+ 			+ req.start;
+ 		file_req.length = req.length;
++		auto const origins = m_web->redirectOrigins.find(file_req.file_index);
++		if (origins != m_web->redirectOrigins.end()) file_req.redirectOrigins = origins->second;
+ 
+ 		request += "GET ";
+ 		// do not encode single file paths, they are
+@@ -462,6 +464,8 @@
+ 			file_req.file_index = f.file_index;
+ 			file_req.start = f.offset;
+ 			file_req.length = int(f.size);
++			auto const origins = m_web->redirectOrigins.find(file_req.file_index);
++			if (origins != m_web->redirectOrigins.end()) file_req.redirectOrigins = origins->second;
+ 
+ 			if (info.orig_files().pad_file_at(f.file_index))
+ 			{
+@@ -656,6 +660,11 @@
+ 
+ 	// temporarily unavailable, retry later
+ 	t->retry_web_seed(this, m_parser.header_duration("retry-after"));
++	if (m_parser.status_code() == 401 && !m_file_requests.empty())
++	{
++		auto const& request = m_file_requests.front();
++		t->retryWebSeedOrigins(*m_web, request.file_index, request.redirectOrigins);
++	}
+ 	if (t->alerts().should_post<url_seed_alert>())
+ 	{
+ 		std::string const error_msg = to_string(m_parser.status_code()).data()
+@@ -758,12 +767,16 @@
+ 		// request with wrong path "http://example2.com/file1" (cause "redirects" map is not serialized in resume)
+ 		web_seed_t* web = t->add_web_seed(redirect_base, web_seed_entry::url_seed
+ 			, auth, m_extra_headers, web_seed_flags);
++		bool const had_file = web->have_files.empty() || web->have_files.get_bit(file_index);
+ 		web->have_files.resize(t->torrent_file().num_files(), false);
++		t->recordWebSeedRedirect(*m_web, *web, file_index, m_file_requests.front().redirectOrigins);
+ 
+ 		// the new web seed we're adding only has this file for now
+ 		// we may add more files later
+ 		web->redirects[file_index] = redirect_path;
+-		if (web->have_files.get_bit(file_index) == false)
++		if (web->have_files.get_bit(file_index) == false
++			&& (web->ephemeral || had_file) && !web->removed
++			&& !web->disabled && !web->peer_info.banned)
+ 		{
+ 			web->have_files.set_bit(file_index);
+ 
+@@ -809,12 +822,26 @@
+ 		// warning on web_seed_entry::extra_headers.
+ 		std::string const auth = same_origin(m_url, location)
+ 			? m_external_auth : std::string();
+-		t->add_web_seed(location, web_seed_entry::url_seed, auth
++		web_seed_t* web = t->add_web_seed(location, web_seed_entry::url_seed, auth
+ 			, m_extra_headers, web_seed_flags);
++		if (!m_file_requests.empty())
++		{
++			auto const& request = m_file_requests.front();
++			t->recordWebSeedRedirect(*m_web, *web, request.file_index, request.redirectOrigins);
++			// A newly issued redirect can reuse the same temporary URL.
++			// Preserve disabled and banned entries, and configured direct errors.
++			if (web != m_web && web->ephemeral && !web->removed
++				&& !web->disabled && !web->peer_info.banned)
++			{
++				if (!web->have_files.empty()) web->have_files.set_bit(request.file_index);
++				web->interesting = true;
++			}
++		}
+ 
+ 		// this web seed doesn't have any files. Don't try to request from it
+ 		// again this session
+ 		m_web->have_files.resize(t->torrent_file().num_files(), false);
++		m_web->have_files.clear_all();
+ 		disconnect(errors::redirecting, operation_t::bittorrent, normal);
+ 		m_web = nullptr;
+ 		TORRENT_ASSERT(is_disconnecting());
+@@ -926,6 +953,7 @@
+ 					&& !isTransientHttpError(m_parser.status_code()))
+ 				{
+ 					file_request_t const& file_req = m_file_requests.front();
++					m_web->redirectGenerations.erase(file_req.file_index);
+ 					m_web->have_files.resize(t->torrent_file().num_files(), true);
+ 					m_web->have_files.clear_bit(file_req.file_index);
+ 

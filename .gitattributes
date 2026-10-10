@@ -1,0 +1,12 @@
+* text=auto
+*.sh text eol=lf
+*.py text eol=lf
+*.md text eol=lf
+*.nsi text eol=lf
+*.nsh text eol=lf
+*.patch text eol=lf
+*.ico binary
+*.png binary
+*.qm binary
+# Manifest źródeł silnika sprawdza dokładne bajty także po git clone.
+dependencies/libtorrent/** -text

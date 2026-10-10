@@ -1,0 +1,21 @@
+diff --git a/src/base/CMakeLists.txt b/src/base/CMakeLists.txt
+index 4f792ae..8452d4f 100644
+--- a/src/base/CMakeLists.txt
++++ b/src/base/CMakeLists.txt
+@@ -223,6 +223,8 @@ add_library(qbt_base STATIC
+ )
+ 
+ target_link_libraries(qbt_base
++    PUBLIC
++        LibtorrentRasterbar::torrent-rasterbar
+     PRIVATE
+         OpenSSL::Crypto
+         OpenSSL::SSL
+@@ -230,7 +232,6 @@ target_link_libraries(qbt_base
+         # FindZLIB (from cmake) and zlib own scripts
+         $<IF:$<TARGET_EXISTS:ZLIB::ZLIB>,ZLIB::ZLIB,ZLIB::ZLIBSTATIC>
+     PUBLIC
+-        LibtorrentRasterbar::torrent-rasterbar
+         Qt::Core
+         Qt::CorePrivate
+         Qt::Network

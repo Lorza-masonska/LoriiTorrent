@@ -1,0 +1,33 @@
+name: loriitorrent
+services:
+  loriitorrent:
+    image: loriitorrent:5.2.4-r3
+    build:
+      context: ..
+      dockerfile: packaging/Dockerfile
+      args:
+        QBT_SOURCE: upstream
+        TESTING: "ON"
+        BUILD_JOBS: "2"
+        LIBTORRENT_PATCHES: "${LIBTORRENT_PATCHES:-ON}"
+    user: "1000:1000"
+    init: true
+    restart: unless-stopped
+    stop_grace_period: 60s
+    ports:
+      - "127.0.0.1:8080:8080"
+      - "6881:6881/tcp"
+      - "6881:6881/udp"
+    volumes:
+      - config:/config
+      - downloads:/downloads
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  config:
+  downloads:
